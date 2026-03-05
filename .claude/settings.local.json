@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:lmstudio.ai)",
+      "Bash(py --version)",
+      "Bash(pip --version)",
+      "Bash(pip3 --version)",
+      "Bash(py -m pip show openai rich prompt_toolkit httpx pyautogui)",
+      "Bash(py -c \"import openai; import inspect; print\\(inspect.getsource\\(openai.OpenAI.__init__\\)\\)\")",
+      "Bash(py -c \":*)",
+      "Bash(py -m pip show prompt_toolkit)",
+      "Bash(py -c \"from prompt_toolkit import PromptSession; print\\(''prompt_toolkit available''\\)\")",
+      "Bash(pip install -r requirements.txt)",
+      "Bash(python3 -m pip install -r \"D:/AI/Claude/agent/requirements.txt\")",
+      "Bash(py -m pip install -r \"D:/AI/Claude/agent/requirements.txt\")",
+      "Bash(py -c \"from pilot.config import Config; from pilot.tool_registry import create_default_registry; from pilot.llm import LLMClient; from pilot.agent import Agent; from pilot.ui.terminal import Terminal; print\\(''All imports OK''\\); r = create_default_registry\\(\\); print\\(f''Tools registered: {r.tool_names}''\\)\")"
+    ]
+  }
+}
