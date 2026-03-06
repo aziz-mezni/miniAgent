@@ -119,7 +119,7 @@ class CharacterWidget(QWidget):
             self._frame = 0
             self._state_time = 0.0
             self._start_time = time.monotonic()
-            self.update()
+            # Don't call self.update() here — the 60 FPS timer handles repaints
 
     def _tick(self) -> None:
         """60 FPS render tick — update continuous time and logical frame."""
@@ -161,16 +161,22 @@ class CharacterWidget(QWidget):
     # ── Painting ──────────────────────────────────────────────────────
 
     def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter = QPainter()
+        if not painter.begin(self):
+            return  # Another painter is already active — skip this frame
 
-        if self._config.get("type") == "sprite_sheet" and self._sprite_sheet:
-            self._draw_sprite_sheet(painter)
-        else:
-            self._draw_procedural(painter)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        painter.end()
+            if self._config.get("type") == "sprite_sheet" and self._sprite_sheet:
+                self._draw_sprite_sheet(painter)
+            else:
+                self._draw_procedural(painter)
+        except Exception:
+            pass  # Swallow draw errors to keep painter state clean
+        finally:
+            painter.end()
 
     def _draw_procedural(self, painter: QPainter) -> None:
         """Draw the character procedurally using QPainter with smooth animation."""
@@ -224,7 +230,7 @@ class CharacterWidget(QWidget):
         cy = h / 2 + bounce_y + 10  # Shift down for antenna room
 
         # ── Apply body tilt ──
-        painter.save()
+        # No save/restore needed here — paintEvent's finally: painter.end() resets all state
         painter.translate(cx, cy)
         painter.rotate(body_tilt)
         painter.translate(-cx, -cy)
@@ -406,19 +412,20 @@ class CharacterWidget(QWidget):
             hand_y = cy - 8
 
             painter.save()
-            painter.translate(hand_x, hand_y)
-            painter.rotate(hand_angle)
+            try:
+                painter.translate(hand_x, hand_y)
+                painter.rotate(hand_angle)
 
-            # Arm
-            painter.setPen(QPen(body_dark, 4, cap=Qt.PenCapStyle.RoundCap))
-            painter.drawLine(0, 0, 0, -22)
+                # Arm
+                painter.setPen(QPen(body_dark, 4, cap=Qt.PenCapStyle.RoundCap))
+                painter.drawLine(0, 0, 0, -22)
 
-            # Hand circle
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(body_color))
-            painter.drawEllipse(-7, -29, 14, 14)
-
-            painter.restore()
+                # Hand circle
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(body_color))
+                painter.drawEllipse(-7, -29, 14, 14)
+            finally:
+                painter.restore()
 
         # ── Feet ──
         foot_y = cy + body_h / 2 - 2
@@ -430,7 +437,7 @@ class CharacterWidget(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(int(fx - 10), int(foot_y), 20, 10)
 
-        painter.restore()  # Undo body tilt
+        # No restore needed — paintEvent handles cleanup via painter.end()
 
     def _draw_sprite_sheet(self, painter: QPainter) -> None:
         """Draw from a sprite sheet. Rows = states, columns = frames."""
