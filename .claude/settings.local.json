@@ -13,7 +13,12 @@
       "Bash(pip install -r requirements.txt)",
       "Bash(python3 -m pip install -r \"D:/AI/Claude/agent/requirements.txt\")",
       "Bash(py -m pip install -r \"D:/AI/Claude/agent/requirements.txt\")",
-      "Bash(py -c \"from pilot.config import Config; from pilot.tool_registry import create_default_registry; from pilot.llm import LLMClient; from pilot.agent import Agent; from pilot.ui.terminal import Terminal; print\\(''All imports OK''\\); r = create_default_registry\\(\\); print\\(f''Tools registered: {r.tool_names}''\\)\")"
+      "Bash(py -c \"from pilot.config import Config; from pilot.tool_registry import create_default_registry; from pilot.llm import LLMClient; from pilot.agent import Agent; from pilot.ui.terminal import Terminal; print\\(''All imports OK''\\); r = create_default_registry\\(\\); print\\(f''Tools registered: {r.tool_names}''\\)\")",
+      "WebFetch(domain:seebass22.github.io)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:python-catalin.blogspot.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:dev.to)"
     ]
   }
 }
