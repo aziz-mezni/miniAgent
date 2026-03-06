@@ -10,11 +10,11 @@
   "mouth_color": "#1A237E",
   "cheek_color": "#F48FB1",
   "animations": {
-    "idle": { "frames": 4, "fps": 2, "bounce_amplitude": 3 },
-    "talk": { "frames": 6, "fps": 8 },
-    "think": { "frames": 4, "fps": 3 },
-    "wave": { "frames": 6, "fps": 6 },
-    "error": { "frames": 2, "fps": 4 }
+    "idle": { "frames": 60, "fps": 30, "bounce_amplitude": 4 },
+    "talk": { "frames": 30, "fps": 15 },
+    "think": { "frames": 40, "fps": 10 },
+    "wave": { "frames": 30, "fps": 15 },
+    "error": { "frames": 20, "fps": 10 }
   },
   "sprite_sheet": null
 }

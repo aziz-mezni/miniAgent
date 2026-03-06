@@ -42,23 +42,28 @@ class ChatBubble(QWidget):
 
     def show_message(self, text: str, duration: int = 5000) -> None:
         """Show a message in the bubble for `duration` ms."""
+        # Truncate very long text for the bubble
+        if len(text) > 300:
+            text = text[:300] + "…"
         self._text = text
         self._auto_hide_timer.stop()
 
-        # Calculate size
+        # Calculate size with proper margins
         fm = QFontMetrics(self._font)
+        available_w = self.MAX_WIDTH - self.PADDING * 2 - 4
         text_rect = fm.boundingRect(
-            QRect(0, 0, self.MAX_WIDTH - self.PADDING * 2, 1000),
-            Qt.TextFlag.TextWordWrap,
+            QRect(0, 0, available_w, 2000),
+            Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft,
             self._text,
         )
 
-        bubble_w = min(text_rect.width() + self.PADDING * 2, self.MAX_WIDTH)
-        bubble_h = text_rect.height() + self.PADDING * 2 + self.TAIL_SIZE
+        bubble_w = min(text_rect.width() + self.PADDING * 2 + 8, self.MAX_WIDTH)
+        bubble_h = text_rect.height() + self.PADDING * 2 + self.TAIL_SIZE + 4
 
-        self.setFixedSize(max(bubble_w, 60), max(bubble_h, 40))
+        self.setFixedSize(max(bubble_w, 80), max(bubble_h, 50))
         self.update()
         self.show()
+        self.raise_()
 
         if duration > 0:
             self._auto_hide_timer.start(duration)

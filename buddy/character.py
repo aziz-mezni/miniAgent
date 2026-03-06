@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,10 @@ from PySide6.QtGui import (
     QBrush, QPen, QPixmap, QFont,
 )
 from PySide6.QtWidgets import QWidget
+
+# Render at 60 FPS for smooth animation regardless of logical frame count
+RENDER_FPS = 60
+RENDER_INTERVAL_MS = 1000 // RENDER_FPS
 
 
 class CharacterWidget(QWidget):
@@ -28,9 +33,14 @@ class CharacterWidget(QWidget):
         self._config: dict[str, Any] = {}
         self._state = "idle"
         self._frame = 0
-        self._time = 0.0  # Continuous time for smooth animation
-        self._pupil_offset_x = 0.0
-        self._pupil_offset_y = 0.0
+        self._start_time = time.monotonic()
+        self._state_time = 0.0  # Time since state change
+
+        # Smooth pupil animation
+        self._pupil_target_x = 0.0
+        self._pupil_target_y = 0.0
+        self._pupil_x = 0.0
+        self._pupil_y = 0.0
 
         # Load config
         if config_path:
@@ -45,16 +55,15 @@ class CharacterWidget(QWidget):
         # Transparent background
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        # Animation timer
-        fps = self._get_anim_fps()
+        # Single high-FPS render timer (60 FPS)
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self._animate)
-        self._timer.start(int(1000 / max(fps, 1)))
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(RENDER_INTERVAL_MS)
 
-        # Pupil wander timer (random eye movement)
+        # Pupil wander timer (random eye target every 1.5-3s)
         self._pupil_timer = QTimer(self)
         self._pupil_timer.timeout.connect(self._wander_pupils)
-        self._pupil_timer.start(2000)
+        self._pupil_timer.start(1800)
 
         # Sprite sheet cache
         self._sprite_sheet: QPixmap | None = None
@@ -97,8 +106,8 @@ class CharacterWidget(QWidget):
         anims = self._config.get("animations", {})
         return anims.get(self._state, {"frames": 4, "fps": 2})
 
-    def _get_anim_fps(self) -> int:
-        return self._get_anim_config().get("fps", 2)
+    def _get_anim_fps(self) -> float:
+        return float(self._get_anim_config().get("fps", 2))
 
     def _get_num_frames(self) -> int:
         return self._get_anim_config().get("frames", 4)
@@ -108,33 +117,53 @@ class CharacterWidget(QWidget):
         if state != self._state:
             self._state = state
             self._frame = 0
-            self._time = 0.0
-            fps = self._get_anim_fps()
-            self._timer.setInterval(int(1000 / max(fps, 1)))
+            self._state_time = 0.0
+            self._start_time = time.monotonic()
             self.update()
 
-    def _animate(self) -> None:
-        """Advance animation frame."""
+    def _tick(self) -> None:
+        """60 FPS render tick — update continuous time and logical frame."""
+        now = time.monotonic()
+        dt = now - self._start_time
+        self._state_time = dt
+
+        # Compute logical frame from continuous time + state FPS
+        anim_fps = self._get_anim_fps()
         num_frames = self._get_num_frames()
-        self._frame = (self._frame + 1) % num_frames
-        self._time += 1.0 / max(self._get_anim_fps(), 1)
+        if anim_fps > 0 and num_frames > 0:
+            self._frame = int(dt * anim_fps) % num_frames
+
+        # Smooth pupil interpolation (lerp toward target)
+        lerp = 0.08
+        self._pupil_x += (self._pupil_target_x - self._pupil_x) * lerp
+        self._pupil_y += (self._pupil_target_y - self._pupil_y) * lerp
+
         self.update()
 
     def _wander_pupils(self) -> None:
-        """Randomly shift pupils for liveliness."""
+        """Set a new random pupil target for smooth interpolation."""
         if self._state == "idle":
-            self._pupil_offset_x = random.uniform(-3, 3)
-            self._pupil_offset_y = random.uniform(-2, 2)
+            self._pupil_target_x = random.uniform(-3.5, 3.5)
+            self._pupil_target_y = random.uniform(-2.5, 2.5)
         elif self._state == "talk":
-            # Look slightly toward where the bubble would be
-            self._pupil_offset_x = random.uniform(-1, 2)
-            self._pupil_offset_y = random.uniform(-3, -1)
+            self._pupil_target_x = random.uniform(-1, 2.5)
+            self._pupil_target_y = random.uniform(-3.5, -1)
+        elif self._state == "think":
+            self._pupil_target_x = random.uniform(-1, 1)
+            self._pupil_target_y = random.uniform(-4, -2)
+        else:
+            self._pupil_target_x = 0
+            self._pupil_target_y = 0
+
+        # Randomize next wander interval
+        self._pupil_timer.setInterval(random.randint(1200, 3000))
 
     # ── Painting ──────────────────────────────────────────────────────
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         if self._config.get("type") == "sprite_sheet" and self._sprite_sheet:
             self._draw_sprite_sheet(painter)
@@ -144,20 +173,43 @@ class CharacterWidget(QWidget):
         painter.end()
 
     def _draw_procedural(self, painter: QPainter) -> None:
-        """Draw the character procedurally using QPainter."""
+        """Draw the character procedurally using QPainter with smooth animation."""
         w = self.width()
         h = self.height()
+        t = self._state_time  # Continuous time for smooth animation
 
-        # Animation offsets
+        # ── Smooth animation offsets ──
         bounce_y = 0.0
         shake_x = 0.0
+        squash = 1.0  # Vertical squash/stretch factor
+        body_tilt = 0.0
 
         if self._state == "idle":
             amp = self._config.get("animations", {}).get("idle", {}).get("bounce_amplitude", 3)
-            bounce_y = math.sin(self._time * math.pi * 2 * 0.5) * amp
+            # Smooth sinusoidal bounce
+            bounce_y = math.sin(t * math.pi * 1.2) * amp
+            # Subtle breathing squash
+            squash = 1.0 + math.sin(t * math.pi * 0.8) * 0.015
+            # Gentle body sway
+            body_tilt = math.sin(t * 0.7) * 1.5
+
+        elif self._state == "talk":
+            # Small bounce while talking
+            bounce_y = math.sin(t * math.pi * 3) * 1.5
+            squash = 1.0 + math.sin(t * math.pi * 4) * 0.02
+
+        elif self._state == "think":
+            # Slow gentle tilt
+            body_tilt = math.sin(t * 1.5) * 3
+            bounce_y = math.sin(t * math.pi * 0.8) * 1
 
         elif self._state == "error":
-            shake_x = math.sin(self._time * math.pi * 2 * 8) * 5
+            # Damped shake that settles
+            decay = math.exp(-t * 2) + 0.3
+            shake_x = math.sin(t * math.pi * 12) * 5 * decay
+
+        elif self._state == "wave":
+            bounce_y = math.sin(t * math.pi * 1.5) * 2
 
         # Colors from config
         body_color = QColor(self._config.get("body_color", "#4FC3F7"))
@@ -169,11 +221,17 @@ class CharacterWidget(QWidget):
         cheek_color = QColor(self._config.get("cheek_color", "#F48FB1"))
 
         cx = w / 2 + shake_x
-        cy = h / 2 + bounce_y + 10  # Shift down to leave room for antenna
+        cy = h / 2 + bounce_y + 10  # Shift down for antenna room
+
+        # ── Apply body tilt ──
+        painter.save()
+        painter.translate(cx, cy)
+        painter.rotate(body_tilt)
+        painter.translate(-cx, -cy)
 
         # ── Body (rounded rectangle with gradient) ──
         body_w = w * 0.7
-        body_h = h * 0.55
+        body_h = h * 0.55 * squash
         body_rect = QRect(
             int(cx - body_w / 2), int(cy - body_h / 2),
             int(body_w), int(body_h)
@@ -187,101 +245,138 @@ class CharacterWidget(QWidget):
         painter.setBrush(QBrush(grad))
         painter.drawRoundedRect(body_rect, 20, 20)
 
+        # ── Subtle highlight on body ──
+        highlight = QRadialGradient(cx - body_w * 0.15, cy - body_h * 0.25, body_w * 0.4)
+        highlight.setColorAt(0, QColor(255, 255, 255, 50))
+        highlight.setColorAt(1, QColor(255, 255, 255, 0))
+        painter.setBrush(QBrush(highlight))
+        painter.drawRoundedRect(body_rect, 20, 20)
+
         # ── Shadow under body ──
-        shadow_color = QColor(0, 0, 0, 30)
+        shadow_alpha = max(10, int(30 - abs(bounce_y) * 3))
+        shadow_color = QColor(0, 0, 0, shadow_alpha)
+        shadow_scale = max(0.6, 1.0 - abs(bounce_y) * 0.02)
         painter.setBrush(QBrush(shadow_color))
+        sw = body_w * 0.8 * shadow_scale
         painter.drawEllipse(
-            int(cx - body_w * 0.4), int(cy + body_h / 2 + 5),
-            int(body_w * 0.8), 8
+            int(cx - sw / 2), int(cy + body_h / 2 + 5 + abs(bounce_y) * 0.5),
+            int(sw), 8
         )
 
         # ── Antenna ──
         antenna_base_y = cy - body_h / 2
-        antenna_tip_y = antenna_base_y - 20 + math.sin(self._time * 3) * 3
-        antenna_tip_x = cx + math.sin(self._time * 2) * 2
+        antenna_tip_y = antenna_base_y - 22 + math.sin(t * 3.5) * 4
+        antenna_tip_x = cx + math.sin(t * 2.3) * 3
 
-        pen = QPen(body_dark, 3)
+        pen = QPen(body_dark, 2.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
-        painter.drawLine(
-            int(cx), int(antenna_base_y),
-            int(antenna_tip_x), int(antenna_tip_y)
+        # Curved antenna using quadratic bezier
+        antenna_path = QPainterPath()
+        antenna_path.moveTo(cx, antenna_base_y)
+        antenna_path.quadTo(
+            cx + math.sin(t * 1.8) * 5, antenna_base_y - 12,
+            antenna_tip_x, antenna_tip_y
         )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(antenna_path)
 
         # Antenna ball
+        ball_size = 10 + math.sin(t * 4) * 1.5
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(accent_color))
-        painter.drawEllipse(int(antenna_tip_x - 6), int(antenna_tip_y - 6), 12, 12)
+        painter.drawEllipse(
+            int(antenna_tip_x - ball_size / 2), int(antenna_tip_y - ball_size / 2),
+            int(ball_size), int(ball_size)
+        )
 
-        # Glow on antenna
-        glow = QRadialGradient(antenna_tip_x, antenna_tip_y, 10)
-        glow.setColorAt(0, QColor(255, 255, 255, 120))
+        # Glow on antenna (pulsing)
+        glow_alpha = int(80 + math.sin(t * 3) * 40)
+        glow = QRadialGradient(antenna_tip_x, antenna_tip_y, 12)
+        glow.setColorAt(0, QColor(255, 255, 255, glow_alpha))
         glow.setColorAt(1, QColor(255, 255, 255, 0))
         painter.setBrush(QBrush(glow))
-        painter.drawEllipse(int(antenna_tip_x - 10), int(antenna_tip_y - 10), 20, 20)
+        painter.drawEllipse(int(antenna_tip_x - 12), int(antenna_tip_y - 12), 24, 24)
 
         # ── Eyes ──
-        eye_y = cy - body_h * 0.1
+        eye_y = cy - body_h * 0.08
         eye_spacing = body_w * 0.22
         eye_radius = 12
 
+        # Blink every ~4 seconds
+        blink_cycle = t % 4.0
+        blink_squash = 1.0
+        if 3.7 < blink_cycle < 3.85:
+            blink_squash = max(0.1, 1.0 - (blink_cycle - 3.7) / 0.075)
+        elif 3.85 < blink_cycle < 4.0:
+            blink_squash = min(1.0, (blink_cycle - 3.85) / 0.075)
+
         for side in [-1, 1]:
             ex = cx + side * eye_spacing
+            er_h = eye_radius * blink_squash
 
             # White of eye
             painter.setBrush(QBrush(eye_color))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(
-                int(ex - eye_radius), int(eye_y - eye_radius),
-                int(eye_radius * 2), int(eye_radius * 2)
+                int(ex - eye_radius), int(eye_y - er_h),
+                int(eye_radius * 2), int(er_h * 2)
             )
 
-            # Pupil
-            px = ex + self._pupil_offset_x + side * 1
-            py = eye_y + self._pupil_offset_y
-            pupil_r = 5
+            if blink_squash > 0.3:
+                # Pupil (smooth interpolated position)
+                px = ex + self._pupil_x + side * 1
+                py = eye_y + self._pupil_y
+                pupil_r = 5
 
-            painter.setBrush(QBrush(pupil_color))
-            painter.drawEllipse(
-                int(px - pupil_r), int(py - pupil_r),
-                int(pupil_r * 2), int(pupil_r * 2)
-            )
+                painter.setBrush(QBrush(pupil_color))
+                painter.drawEllipse(
+                    int(px - pupil_r), int(py - pupil_r),
+                    int(pupil_r * 2), int(pupil_r * 2)
+                )
 
-            # Highlight
-            painter.setBrush(QBrush(QColor(255, 255, 255, 200)))
-            painter.drawEllipse(int(px - 2), int(py - 3), 4, 4)
+                # Highlight
+                painter.setBrush(QBrush(QColor(255, 255, 255, 210)))
+                painter.drawEllipse(int(px - 2), int(py - 3), 4, 4)
 
         # ── Cheeks ──
         cheek_color_alpha = QColor(cheek_color)
-        cheek_color_alpha.setAlpha(80)
+        cheek_color_alpha.setAlpha(70)
         painter.setBrush(QBrush(cheek_color_alpha))
         cheek_y = eye_y + eye_radius + 4
         for side in [-1, 1]:
             cx_cheek = cx + side * (eye_spacing + eye_radius + 2)
-            painter.drawEllipse(int(cx_cheek - 6), int(cheek_y - 4), 12, 8)
+            painter.drawEllipse(int(cx_cheek - 7), int(cheek_y - 4), 14, 9)
 
         # ── Mouth ──
-        mouth_y = eye_y + eye_radius + 12
+        mouth_y = eye_y + eye_radius + 14
         painter.setPen(QPen(mouth_color, 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
         if self._state == "talk":
-            # Open mouth — alternates between open and half-open
-            if self._frame % 2 == 0:
-                painter.setBrush(QBrush(QColor(mouth_color)))
-                painter.drawEllipse(int(cx - 6), int(mouth_y - 4), 12, 10)
-            else:
-                painter.drawArc(
-                    int(cx - 8), int(mouth_y - 6), 16, 12,
-                    200 * 16, 140 * 16
-                )
+            # Smooth mouth open/close using sine wave
+            mouth_open = (math.sin(t * math.pi * 6) + 1) / 2  # 0 to 1
+            mouth_h = int(4 + mouth_open * 8)
+            mouth_w = int(8 + mouth_open * 4)
+            painter.setPen(QPen(mouth_color, 1.5))
+            painter.setBrush(QBrush(QColor(mouth_color)))
+            painter.drawEllipse(
+                int(cx - mouth_w / 2), int(mouth_y - mouth_h / 2),
+                mouth_w, mouth_h
+            )
         elif self._state == "error":
             # Wavy worried mouth
             path = QPainterPath()
             path.moveTo(cx - 10, mouth_y)
-            path.cubicTo(cx - 5, mouth_y + 4, cx + 5, mouth_y - 4, cx + 10, mouth_y)
+            wobble = math.sin(t * 6) * 2
+            path.cubicTo(
+                cx - 5, mouth_y + 4 + wobble,
+                cx + 5, mouth_y - 4 - wobble,
+                cx + 10, mouth_y
+            )
             painter.drawPath(path)
         else:
-            # Smile
+            # Gentle smile
             painter.drawArc(
                 int(cx - 8), int(mouth_y - 8), 16, 12,
                 200 * 16, 140 * 16
@@ -289,46 +384,53 @@ class CharacterWidget(QWidget):
 
         # ── Think dots ──
         if self._state == "think":
-            dot_y = cy - body_h / 2 - 30
+            dot_y = cy - body_h / 2 - 28
             num_dots = 3
-            active = self._frame % (num_dots + 1)
             for i in range(num_dots):
-                alpha = 255 if i < active else 60
+                # Phase-offset pulsing
+                phase = t * 3 - i * 0.8
+                alpha = int((math.sin(phase) + 1) / 2 * 195 + 60)
+                scale = 0.8 + (math.sin(phase) + 1) / 2 * 0.4
                 dot_color = QColor(accent_color)
                 dot_color.setAlpha(alpha)
                 painter.setBrush(QBrush(dot_color))
                 painter.setPen(Qt.PenStyle.NoPen)
-                dx = cx - 10 + i * 10
-                painter.drawEllipse(int(dx), int(dot_y), 6, 6)
+                dx = cx - 12 + i * 12
+                r = int(3 * scale)
+                painter.drawEllipse(int(dx - r), int(dot_y - r), r * 2, r * 2)
 
         # ── Wave hand ──
         if self._state == "wave":
-            hand_angle = math.sin(self._time * math.pi * 2 * 2) * 30
+            hand_angle = math.sin(t * math.pi * 3) * 35
             hand_x = cx + body_w / 2 + 5
-            hand_y = cy - 5
+            hand_y = cy - 8
 
             painter.save()
             painter.translate(hand_x, hand_y)
             painter.rotate(hand_angle)
 
             # Arm
-            painter.setPen(QPen(body_dark, 4))
-            painter.drawLine(0, 0, 0, -20)
+            painter.setPen(QPen(body_dark, 4, cap=Qt.PenCapStyle.RoundCap))
+            painter.drawLine(0, 0, 0, -22)
 
             # Hand circle
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(body_color))
-            painter.drawEllipse(-6, -26, 12, 12)
+            painter.drawEllipse(-7, -29, 14, 14)
 
             painter.restore()
 
         # ── Feet ──
         foot_y = cy + body_h / 2 - 2
-        for side in [-1, 1]:
-            fx = cx + side * body_w * 0.2
+        # Subtle foot wiggle
+        foot_offset = math.sin(t * 2) * 1
+        for i, side in enumerate([-1, 1]):
+            fx = cx + side * body_w * 0.2 + (foot_offset if i == 0 else -foot_offset)
             painter.setBrush(QBrush(body_dark))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(int(fx - 10), int(foot_y), 20, 10)
+
+        painter.restore()  # Undo body tilt
 
     def _draw_sprite_sheet(self, painter: QPainter) -> None:
         """Draw from a sprite sheet. Rows = states, columns = frames."""

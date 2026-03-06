@@ -36,6 +36,14 @@ class MessageBubble(QFrame):
             bg = "#FFFFFF"
             align = Qt.AlignmentFlag.AlignLeft
 
+        # Determine text color per role
+        if role == "error":
+            text_color = "#B71C1C"
+        elif role == "tool":
+            text_color = "#4E342E"
+        else:
+            text_color = "#1A1A1A"
+
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {bg};
@@ -46,14 +54,22 @@ class MessageBubble(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(0)
 
         self._label = QLabel(text)
         self._label.setWordWrap(True)
         self._label.setFont(QFont("Segoe UI", 9))
-        self._label.setStyleSheet("background: transparent; padding: 0; margin: 0;")
+        self._label.setStyleSheet(f"""
+            QLabel {{
+                background: transparent;
+                color: {text_color};
+                padding: 2px 4px;
+                margin: 0;
+            }}
+        """)
         self._label.setTextFormat(Qt.TextFormat.PlainText)
+        self._label.setMinimumWidth(40)
         layout.addWidget(self._label)
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
@@ -124,8 +140,24 @@ class ChatPanel(QWidget):
                 background: transparent;
                 border: none;
             }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
             QWidget#scrollContent {
                 background: transparent;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 6px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(0, 0, 0, 40);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0;
             }
         """)
 
