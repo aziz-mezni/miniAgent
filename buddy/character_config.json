@@ -1,0 +1,20 @@
+{
+  "name": "Spark",
+  "type": "procedural",
+  "size": [120, 140],
+  "body_color": "#4FC3F7",
+  "body_color_dark": "#0288D1",
+  "eye_color": "#FFFFFF",
+  "pupil_color": "#1A237E",
+  "accent_color": "#FF6F00",
+  "mouth_color": "#1A237E",
+  "cheek_color": "#F48FB1",
+  "animations": {
+    "idle": { "frames": 4, "fps": 2, "bounce_amplitude": 3 },
+    "talk": { "frames": 6, "fps": 8 },
+    "think": { "frames": 4, "fps": 3 },
+    "wave": { "frames": 6, "fps": 6 },
+    "error": { "frames": 2, "fps": 4 }
+  },
+  "sprite_sheet": null
+}
