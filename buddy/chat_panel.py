@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QSize
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QBrush, QPen
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
-    QLineEdit, QPushButton, QFrame, QSizePolicy,
+    QLineEdit, QPushButton, QFrame, QSizePolicy, QMenu,
 )
 
 
@@ -25,16 +25,12 @@ class MessageBubble(QFrame):
         # Style based on role
         if role == "user":
             bg = "#DCF8C6"
-            align = Qt.AlignmentFlag.AlignRight
         elif role == "tool":
             bg = "#FFF3E0"
-            align = Qt.AlignmentFlag.AlignLeft
         elif role == "error":
             bg = "#FFCDD2"
-            align = Qt.AlignmentFlag.AlignLeft
         else:  # assistant
             bg = "#FFFFFF"
-            align = Qt.AlignmentFlag.AlignLeft
 
         # Determine text color per role
         if role == "error":
@@ -72,7 +68,45 @@ class MessageBubble(QFrame):
         self._label.setMinimumWidth(40)
         layout.addWidget(self._label)
 
+        # Copy button (assistant messages only)
+        if role == "assistant":
+            self._copy_btn = QPushButton("📋")
+            self._copy_btn.setFixedSize(22, 22)
+            self._copy_btn.setToolTip("Copy")
+            self._copy_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    font-size: 11px;
+                    padding: 0;
+                }
+                QPushButton:hover {
+                    background: rgba(0, 0, 0, 0.08);
+                    border-radius: 11px;
+                }
+            """)
+            self._copy_btn.clicked.connect(self._copy_text)
+            self._copy_btn.hide()
+            layout.addWidget(self._copy_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+
+    def _copy_text(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self._label.text())
+        self._copy_btn.setText("✓")
+        QTimer.singleShot(1500, lambda: self._copy_btn.setText("📋"))
+
+    def enterEvent(self, event) -> None:
+        if hasattr(self, "_copy_btn"):
+            self._copy_btn.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if hasattr(self, "_copy_btn"):
+            self._copy_btn.hide()
+        super().leaveEvent(event)
 
     def append_text(self, text: str) -> None:
         self._label.setText(self._label.text() + text)
@@ -85,6 +119,9 @@ class ChatPanel(QWidget):
     """Expandable mini chat panel with message history and input."""
 
     message_submitted = Signal(str)
+    new_session_requested = Signal()
+    vision_requested = Signal(str)       # "full" or "section"
+    settings_requested = Signal()
 
     PANEL_WIDTH = 320
     PANEL_HEIGHT = 400
@@ -106,6 +143,49 @@ class ChatPanel(QWidget):
         self._setup_ui()
         self.hide()
 
+    # ── Header button styles ──────────────────────────────────────────
+
+    @staticmethod
+    def _header_btn_style() -> str:
+        return """
+            QPushButton {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 13px;
+                font-size: 13px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: rgba(79, 195, 247, 0.2);
+                border: 1px solid rgba(79, 195, 247, 0.4);
+            }
+            QPushButton:pressed {
+                background-color: rgba(79, 195, 247, 0.4);
+            }
+        """
+
+    @staticmethod
+    def _vision_btn_style() -> str:
+        return """
+            QPushButton {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 13px;
+                font-size: 14px;
+                padding: 0px;
+                color: #F9A825;
+            }
+            QPushButton:hover {
+                background-color: rgba(249, 168, 37, 0.15);
+                border: 1px solid rgba(249, 168, 37, 0.4);
+            }
+            QPushButton:pressed {
+                background-color: rgba(249, 168, 37, 0.3);
+            }
+        """
+
+    # ── UI Setup ──────────────────────────────────────────────────────
+
     def _setup_ui(self) -> None:
         # Main container with rounded corners
         self._container = QFrame(self)
@@ -123,13 +203,44 @@ class ChatPanel(QWidget):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(4)
 
-        # ── Header ──
-        header = QLabel("💬 Pilot Chat")
-        header.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        header.setStyleSheet(
-            "background: transparent; color: #333; padding: 4px 8px;"
+        # ── Header row ──
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(4, 0, 2, 0)
+        header_layout.setSpacing(2)
+
+        header_label = QLabel("Pilot Chat")
+        header_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        header_label.setStyleSheet(
+            "background: transparent; color: #333; padding: 4px 0px;"
         )
-        main_layout.addWidget(header)
+        header_layout.addWidget(header_label)
+        header_layout.addStretch()
+
+        # New session button
+        new_session_btn = QPushButton("🔄")
+        new_session_btn.setFixedSize(26, 26)
+        new_session_btn.setToolTip("New Session")
+        new_session_btn.setStyleSheet(self._header_btn_style())
+        new_session_btn.clicked.connect(self.new_session_requested.emit)
+        header_layout.addWidget(new_session_btn)
+
+        # Vision button (yellow eye)
+        vision_btn = QPushButton("👁")
+        vision_btn.setFixedSize(26, 26)
+        vision_btn.setToolTip("Vision — Analyze Screen")
+        vision_btn.setStyleSheet(self._vision_btn_style())
+        vision_btn.clicked.connect(self._show_vision_menu)
+        header_layout.addWidget(vision_btn)
+
+        # Settings button
+        settings_btn = QPushButton("⚙")
+        settings_btn.setFixedSize(26, 26)
+        settings_btn.setToolTip("Settings")
+        settings_btn.setStyleSheet(self._header_btn_style())
+        settings_btn.clicked.connect(self.settings_requested.emit)
+        header_layout.addWidget(settings_btn)
+
+        main_layout.addLayout(header_layout)
 
         # ── Scroll area for messages ──
         self._scroll = QScrollArea()
@@ -171,6 +282,16 @@ class ChatPanel(QWidget):
         self._scroll.setWidget(self._messages_widget)
         main_layout.addWidget(self._scroll, 1)
 
+        # ── Token counter ──
+        self._token_label = QLabel("")
+        self._token_label.setFont(QFont("Segoe UI", 8))
+        self._token_label.setStyleSheet(
+            "color: #999; background: transparent; padding: 0 8px;"
+        )
+        self._token_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._token_label.hide()
+        main_layout.addWidget(self._token_label)
+
         # ── Input area ──
         input_layout = QHBoxLayout()
         input_layout.setSpacing(6)
@@ -181,6 +302,7 @@ class ChatPanel(QWidget):
         self._input.setStyleSheet("""
             QLineEdit {
                 background-color: white;
+                color: #1A1A1A;
                 border: 1px solid #ccc;
                 border-radius: 12px;
                 padding: 6px 12px;
@@ -214,6 +336,39 @@ class ChatPanel(QWidget):
 
         main_layout.addLayout(input_layout)
 
+    # ── Vision menu ───────────────────────────────────────────────────
+
+    def _show_vision_menu(self) -> None:
+        """Show popup with vision capture options."""
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 16px;
+                border-radius: 4px;
+                color: #1A1A1A;
+            }
+            QMenu::item:selected {
+                background-color: #FFF8E1;
+            }
+        """)
+
+        full_action = menu.addAction("🖥  Entire Screen")
+        full_action.triggered.connect(lambda: self.vision_requested.emit("full"))
+
+        section_action = menu.addAction("✂  Select Section")
+        section_action.triggered.connect(lambda: self.vision_requested.emit("section"))
+
+        # Position menu below the vision button
+        menu.exec(self.mapToGlobal(self.rect().topRight()))
+
+    # ── Internal helpers ──────────────────────────────────────────────
+
     def _add_bubble(self, text: str, role: str) -> MessageBubble:
         bubble = MessageBubble(text, role, self._messages_widget)
         # Insert before the stretch
@@ -224,7 +379,6 @@ class ChatPanel(QWidget):
 
     def _scroll_to_bottom(self) -> None:
         """Scroll to the bottom of the message list."""
-        from PySide6.QtCore import QTimer
         QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(
             self._scroll.verticalScrollBar().maximum()
         ))
@@ -263,6 +417,13 @@ class ChatPanel(QWidget):
         """Finalize the streaming bubble."""
         self._streaming_bubble = None
         self._scroll_to_bottom()
+
+    def update_token_count(self, input_tokens: int, output_tokens: int) -> None:
+        """Update the token counter display."""
+        self._token_label.setText(
+            f"Tokens: {input_tokens:,} in / {output_tokens:,} out"
+        )
+        self._token_label.show()
 
     def clear(self) -> None:
         """Remove all messages."""
