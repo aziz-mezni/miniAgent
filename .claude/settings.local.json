@@ -18,7 +18,26 @@
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:python-catalin.blogspot.com)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:dev.to)"
+      "WebFetch(domain:dev.to)",
+      "Bash(py -m pip install PySide6 qasync)",
+      "Bash(git add buddy/__init__.py buddy/__main__.py buddy/app.py buddy/bridge.py buddy/character.py buddy/character_config.json buddy/chat_bubble.py buddy/chat_panel.py buddy/main_window.py buddy/tray.py requirements-buddy.txt)",
+      "Bash(git commit:*)",
+      "Bash(git add buddy/character.py buddy/character_config.json buddy/chat_bubble.py buddy/chat_panel.py config.yaml)",
+      "Bash(py -c \"import py_compile; py_compile.compile\\(''buddy/character.py'', doraise=True\\); print\\(''Syntax OK''\\)\")",
+      "Bash(py -c \"from buddy.character import CharacterWidget; print\\(''Import OK''\\)\")",
+      "Bash(git add buddy/character.py)",
+      "Bash(git push -u origin feature/buddy-ui)",
+      "Bash(gh pr:*)",
+      "Bash(where gh)",
+      "Bash(where gh.exe)",
+      "Bash(py -c \"from buddy.chat_panel import ChatPanel; print\\(''chat_panel OK''\\)\")",
+      "Bash(py -c \"from buddy.bridge import BuddyBridge, BuddyRenderer; print\\(''bridge OK''\\)\")",
+      "Bash(py -c \"from buddy.screenshot_overlay import ScreenshotOverlay; print\\(''screenshot_overlay OK''\\)\")",
+      "Bash(py -c \"from buddy.settings_panel import SettingsDialog, PROVIDERS; print\\(f''settings_panel OK, {len\\(PROVIDERS\\)} providers''\\)\")",
+      "Bash(py -c \"from buddy.main_window import BuddyWindow; print\\(''main_window OK''\\)\")",
+      "Bash(py -c \"from buddy.app import BuddyApp; print\\(''Full app import OK''\\)\")",
+      "Bash(git add buddy/bridge.py buddy/chat_panel.py buddy/main_window.py buddy/screenshot_overlay.py buddy/settings_panel.py)",
+      "Bash(git push)"
     ]
   }
 }
